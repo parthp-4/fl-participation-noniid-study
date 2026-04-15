@@ -112,4 +112,4 @@ This project is released for academic and research purposes.
 
 **Parth Porwal**  
 Department of Information Technology, Manipal University Jaipur  
-📧 23fe10ite00030@muj.manipal.edu
+📧 parthporwal4@gmail.com
