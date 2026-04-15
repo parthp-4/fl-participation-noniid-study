@@ -20,7 +20,7 @@
 
 \begin{document}
 
-\title{Impact of Client Participation Rate on Federated Learning Algorithm Performance Under Varying Statistical Heterogeneity: An Experimental Study}
+\title{Impact of Client Participation Rate on Federated Learning Algorithm Performance Under Varying Statistical Heterogeneity}
 
 \author{
 \IEEEauthorblockN{Parth Porwal}
@@ -34,11 +34,10 @@ Rajasthan, India \\
 \maketitle
 
 % ============================================================================
-% ABSTRACT — Written with placeholder structure; fill in actual numbers
-% after running experiments on Colab
+% ABSTRACT
 % ============================================================================
 \begin{abstract}
-Federated learning enables collaborative model training across distributed clients without sharing raw data. Two persistent challenges in practical deployments are statistical heterogeneity across client datasets and incomplete client participation during training rounds. While prior benchmarking efforts have examined these challenges in isolation, no existing study provides a systematic two-dimensional analysis of their combined effect on widely adopted aggregation strategies. In this paper, we conduct a controlled experimental study comparing FedAvg, FedProx, and SCAFFOLD across a grid of four Dirichlet-based heterogeneity levels ($\alpha \in \{0.05, 0.1, 0.5, 1.0\}$) and four client participation rates ($\{20\%, 50\%, 80\%, 100\%\}$), yielding 48 distinct training configurations evaluated over 30 communication rounds on the MNIST dataset with 10 clients. Our results reveal that the interaction between participation rate and data heterogeneity is non-linear and algorithm-specific. SCAFFOLD's accuracy dropped from 92.32\% to 42.29\% when participation decreased from 100\% to 20\% at $\alpha=0.05$ --- a 50.03 percentage point decline compared to only 69.01 points for FedProx under identical conditions. At moderate heterogeneity ($\alpha \geq 0.5$), FedAvg and FedProx consistently achieved 95--98\% accuracy regardless of participation, while SCAFFOLD plateaued at 86--93\%. We present these findings as a practical decision matrix to guide algorithm selection in resource-constrained federated deployments.
+Federated learning allows distributed clients to collaboratively train machine learning models while retaining local data ownership. Two recurring obstacles in practical deployments --- statistical heterogeneity across client datasets and incomplete client participation during training rounds --- are typically studied in isolation by existing benchmarks. This paper presents a controlled experimental study that simultaneously varies both factors, evaluating FedAvg, FedProx, and SCAFFOLD across a grid of four Dirichlet-based heterogeneity levels ($\alpha \in \{0.05, 0.1, 0.5, 1.0\}$) and four client participation rates ($\{20\%, 50\%, 80\%, 100\%\}$), producing 48 distinct training configurations over 30 communication rounds on MNIST with 10 clients. Our results expose a non-linear, algorithm-dependent interaction between participation and heterogeneity. SCAFFOLD exhibited a persistent performance ceiling, peaking at 93.39\% even under favorable conditions, compared to 98.05\% for FedAvg and 98.10\% for FedProx. At moderate heterogeneity ($\alpha \geq 0.5$), FedAvg and FedProx maintained 95--98\% accuracy across all participation rates, while SCAFFOLD remained bounded between 86\% and 93\%. However, at severe heterogeneity with minimal participation ($\alpha = 0.1$, $p = 0.2$), FedAvg and FedProx both collapsed to approximately 12--14\%, whereas SCAFFOLD sustained 67.74\% --- revealing that control-variate corrections can stabilize training under conditions that cause catastrophic failure in simpler aggregation strategies. We synthesize these findings into a practical decision matrix that maps algorithm suitability across the full parameter space, offering actionable guidance for federated system designers.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -50,28 +49,31 @@ federated learning, non-IID data, client participation, statistical heterogeneit
 % ============================================================================
 \section{Introduction}
 
-Federated learning (FL), first formalized by McMahan et al. \cite{mcmahan2017fedavg}, has emerged as the dominant paradigm for training machine learning models across distributed data sources without centralizing sensitive information. Rather than transmitting raw data to a server, each participating client trains a local model on its own dataset and communicates only the updated model parameters. The server then aggregates these updates to produce an improved global model.
+Federated learning (FL), introduced by McMahan et al. \cite{mcmahan2017fedavg}, has become the standard paradigm for training shared models across distributed data owners without requiring raw data to leave local devices. In this framework, each client performs local optimization on its own dataset and transmits only updated model parameters to a coordinating server, which aggregates these contributions into a refined global model. This decentralized architecture has found adoption across application domains where data cannot be freely pooled due to regulatory, competitive, or infrastructure constraints.
 
-Two fundamental obstacles continue to limit the practical effectiveness of federated systems. The first is \textit{statistical heterogeneity}: in realistic deployments, clients operate on data that differs substantially in both label composition and volume. A hospital specializing in pediatrics will accumulate a very different distribution of diagnostic images than a geriatric facility, even when both participate in the same federated network. This heterogeneity causes local model updates to diverge from one another, a phenomenon commonly referred to as ``client drift'' \cite{karimireddy2020scaffold}, which slows convergence and can degrade the final accuracy of the global model.
+In healthcare, for instance, hospitals participating in a federated consortium can jointly develop diagnostic models without transferring patient records across institutional boundaries, preserving compliance with data protection regulations such as HIPAA and GDPR \cite{kairouz2021advances}. In financial services, banks have explored federated approaches for anti-money-laundering and credit scoring models, where sharing raw transaction data among competitors is commercially and legally untenable. Similarly, mobile keyboard prediction and on-device recommendation systems represent canonical cross-device FL deployments where billions of smartphones contribute training signals without uploading personal text or browsing histories to central servers \cite{mcmahan2017fedavg}. In each of these contexts, the promise of federated learning is contingent on two practical realities that current benchmarks inadequately address in combination: the degree of statistical dissimilarity across client datasets, and the fraction of clients that reliably participate in any given training round.
 
-The second obstacle is \textit{partial client participation}. In any real-world system, not every client is available at every training round. Mobile devices go offline, hospital servers undergo maintenance windows, and edge nodes experience intermittent connectivity. When only a fraction of clients contribute updates in a given round, the aggregated model receives an incomplete picture of the overall data distribution, introducing additional variance into the training process.
+Two pervasive obstacles undermine the practical reliability of federated systems. The first is \textit{statistical heterogeneity}: real-world clients collect data under divergent conditions, leading to substantial differences in label composition and sample volume. A radiology department focused on musculoskeletal imaging will accumulate a fundamentally different distribution of scans than a cardiac imaging unit, even within the same federated network. This distributional mismatch drives local updates in conflicting directions --- a well-characterized phenomenon known as ``client drift'' \cite{karimireddy2020scaffold} --- which slows convergence and erodes the quality of the aggregated model. The severity of this drift depends directly on the degree of distributional divergence across clients: mild heterogeneity produces gentle misalignment that averaging can overcome, while extreme heterogeneity generates sharply opposing gradient directions that can prevent the global model from settling at any useful minimum.
 
-Several algorithmic strategies have been developed to address these challenges. FedAvg \cite{mcmahan2017fedavg} introduced the basic aggregation framework but offered no explicit mechanism for handling heterogeneous data. FedProx \cite{li2020fedprox} added a proximal regularization term that penalizes local models for drifting too far from the current global model, providing a simple but effective guardrail against divergence. SCAFFOLD \cite{karimireddy2020scaffold} took a more principled approach by introducing control variates — auxiliary variables that estimate and correct for the gradient bias induced by heterogeneous local objectives.
+The second obstacle is \textit{partial client participation}. In practice, every client cannot reliably contribute at every training round. Mobile devices lose connectivity, institutional servers enter scheduled maintenance, and edge nodes face intermittent resource constraints. When only a subset of clients communicates updates during a given round, the aggregated model is constructed from a partial and potentially biased sample of the overall data distribution, injecting additional variance into the optimization trajectory. The stochasticity of this sampling has a direct mathematical consequence: with fewer participants, the probability that the selected cohort is representative of the overall population decreases, and the variance of the aggregated gradient estimate increases correspondingly.
 
-A substantial body of empirical work has compared these algorithms under various heterogeneity conditions. The most comprehensive benchmark to date is NIID-Bench \cite{li2022niid}, which evaluated FedAvg, FedProx, SCAFFOLD, and FedNova across nine datasets with three types of non-IID partitioning. Among their key findings was Finding~6: ``In the partial participation setting, SCAFFOLD cannot work effectively.'' However, their partial participation experiment was conducted at a single configuration — 100 clients with a 10\% sample fraction — and predominantly at a default Dirichlet concentration of $\alpha = 0.5$. They did not systematically vary both the participation rate and the heterogeneity level to understand how these two factors interact.
+Multiple algorithmic strategies have emerged to address these challenges. FedAvg \cite{mcmahan2017fedavg} established the core aggregation protocol but included no explicit safeguard against distributional mismatch. FedProx \cite{li2020fedprox} augmented the local objective with a proximal regularization term that constrains local parameters to remain near the global model, providing a straightforward defense against excessive drift. SCAFFOLD \cite{karimireddy2020scaffold} adopted a more theoretically grounded approach by maintaining control variates --- auxiliary variables that estimate and compensate for the directional bias induced by heterogeneous local objectives. Each of these methods was developed and validated with a particular configuration of heterogeneity and participation in mind, yet their relative performance across the \textit{combined} parameter space of both factors has never been systematically mapped.
 
-This gap matters for practitioners. A system administrator deploying a federated model needs to know not just whether SCAFFOLD outperforms FedProx on average, but specifically: \textit{at what combination of data heterogeneity and expected client availability does the choice of algorithm materially change?} The answer to this question requires a two-dimensional experimental analysis that, to our knowledge, has not been conducted.
+Considerable empirical work has compared these algorithms under various heterogeneity settings. The most extensive benchmarking effort to date, NIID-Bench \cite{li2022niid}, evaluated FedAvg, FedProx, SCAFFOLD, and FedNova across nine datasets with three categories of non-IID partitioning. Among their notable conclusions, Finding~6 stated: ``In the partial participation setting, SCAFFOLD cannot work effectively.'' However, this finding was established at a single operating point --- 100 clients with a 10\% sample fraction and a default Dirichlet concentration of $\alpha = 0.5$ --- leaving the broader parameter space unexplored. A natural question arises: does SCAFFOLD fail uniformly under partial participation, or does its behavior depend on the severity of the underlying heterogeneity?
 
-In this paper, we present the first systematic study of the joint effect of participation rate and non-IID severity on the performance of FedAvg, FedProx, and SCAFFOLD. We construct a $4 \times 4$ grid of experimental conditions — four Dirichlet concentration values controlling heterogeneity and four client participation rates — and evaluate all three algorithms across this grid, yielding 48 distinct experimental configurations. Our analysis produces a practical decision matrix that maps each region of the parameter space to the algorithm most likely to succeed, offering concrete guidance for real-world deployment decisions.
+This gap has direct implications for practitioners. A system designer deploying a federated model needs to understand not merely whether one algorithm outperforms another on average, but specifically: \textit{at what combination of data heterogeneity and expected client availability does the choice of algorithm materially change the outcome?} Without this two-dimensional understanding, deployment decisions are made on the basis of one-dimensional benchmarks that may not generalize to the actual operating conditions of the target system. A hospital consortium with five participating sites and severe label imbalance faces qualitatively different challenges than a mobile application with thousands of devices and relatively uniform usage patterns, yet both deployment scenarios are governed by the same two parameters --- participation rate and data heterogeneity --- that existing studies vary only independently.
+
+In this paper, we present the first systematic investigation of the joint effect of participation rate and non-IID severity on the performance of FedAvg, FedProx, and SCAFFOLD. We construct a $4 \times 4$ grid of experimental conditions spanning four Dirichlet concentration parameters and four participation rates, executing all three algorithms across this space to yield 48 distinct training configurations. Our analysis produces several unexpected findings, including the discovery that algorithm rankings invert under extreme operating conditions and that SCAFFOLD exhibits a counterintuitive non-monotonic response to increasing participation at certain heterogeneity levels.
 
 Our main contributions are:
 \begin{enumerate}
-    \item A controlled two-dimensional experimental framework that simultaneously varies participation rate and statistical heterogeneity, addressing a gap identified but unexplored by prior benchmarking studies.
-    \item Empirical evidence that the interaction between these two factors is non-linear and algorithm-specific, with SCAFFOLD exhibiting disproportionate sensitivity to low participation under severe heterogeneity.
-    \item A decision matrix mapping algorithm suitability across the combined parameter space, providing actionable guidance for federated system designers.
+    \item A controlled two-dimensional experimental framework that jointly varies participation rate and statistical heterogeneity, addressing a gap identified but unexplored by existing benchmarking studies.
+    \item Empirical evidence that the interaction between these two factors is non-linear and algorithm-specific, with SCAFFOLD exhibiting a persistent performance ceiling alongside a unique resistance to catastrophic model collapse under severe heterogeneity.
+    \item Detailed analysis of training trajectory dynamics, including the documentation of a catastrophic collapse mechanism in FedAvg and FedProx where models that achieved over 74\% accuracy abruptly deteriorated to near-random performance within six communication rounds.
+    \item A decision matrix mapping algorithm suitability across the combined parameter space, providing actionable guidance for practitioners deploying federated learning systems.
 \end{enumerate}
 
-The remainder of this paper is organized as follows. Section~II surveys the relevant literature on federated optimization and non-IID benchmarking. Section~III details our experimental methodology, including the data partitioning scheme and algorithm implementations. Section~IV presents our results across the full experimental grid. Section~V discusses the practical implications and limitations of our findings. Section~VI concludes with directions for future work.
+The remainder of this paper is organized as follows. Section~II surveys relevant literature on federated optimization and non-IID benchmarking. Section~III describes our experimental methodology, encompassing data partitioning and algorithm implementations. Section~IV specifies the experimental configuration and evaluation protocol. Section~V presents and analyzes results across the full grid. Section~VI concludes with practical recommendations and directions for future work.
 
 
 % ============================================================================
@@ -81,29 +83,31 @@ The remainder of this paper is organized as follows. Section~II surveys the rele
 
 \subsection{Federated Aggregation Strategies}
 
-The foundational work in federated optimization by McMahan et al. \cite{mcmahan2017fedavg} introduced two algorithms: FedSGD, where clients perform a single gradient step before communication, and FedAvg, which allows multiple local epochs of stochastic gradient descent before aggregating. The practical advantage of FedAvg is its communication efficiency — fewer rounds are needed to reach a target accuracy compared to FedSGD — but this comes at the cost of increased local model divergence when data distributions differ across clients.
+The foundational contribution of McMahan et al. \cite{mcmahan2017fedavg} introduced FedSGD, in which clients compute a single gradient step before communication, and FedAvg, which permits multiple local epochs of stochastic gradient descent prior to aggregation. FedAvg offers a practical communication advantage --- fewer rounds are required to achieve a target accuracy compared to FedSGD --- but this efficiency gain comes at the expense of amplified local model divergence when client data distributions differ significantly. The degree of this divergence is governed by the interaction between the number of local epochs, the learning rate, and the dissimilarity of local data distributions: more local computation produces larger divergence when distributions differ \cite{kairouz2021advances}.
 
-Li et al. \cite{li2020fedprox} observed that FedAvg's convergence guarantees break down under systems heterogeneity (varying computation speeds across devices) and statistical heterogeneity (non-identical data distributions). Their proposed solution, FedProx, modifies the local objective by adding a quadratic penalty term $\frac{\mu}{2}\|w - w_{\text{global}}\|^2$ that discourages local parameters from straying too far from the global model. The hyperparameter $\mu$ controls the strength of this constraint. While conceptually straightforward, FedProx has demonstrated consistent improvements over FedAvg in heterogeneous settings across multiple empirical evaluations.
+Li et al. \cite{li2020fedprox} identified that FedAvg's theoretical convergence guarantees weaken under both systems heterogeneity (heterogeneous computation capabilities) and statistical heterogeneity (non-identical data distributions). Their proposed modification, FedProx, augments the local objective with a quadratic penalty $\frac{\mu}{2}\|w - w_{\text{global}}\|^2$ that discourages local parameters from deviating excessively from the current global model. The regularization strength $\mu$ governs this trade-off: larger values impose stronger proximity at the cost of slower adaptation to local data patterns. Despite its conceptual simplicity, FedProx has delivered consistent empirical gains over FedAvg across heterogeneous scenarios in numerous evaluations. The mechanism behind this improvement is intuitive: by anchoring local updates to the global model, FedProx reduces the magnitude of conflicting gradient directions that arise from distributional mismatch, effectively smoothing the optimization landscape that the server must navigate during aggregation.
 
-Karimireddy et al. \cite{karimireddy2020scaffold} identified client drift as the core convergence bottleneck in heterogeneous federated systems and proposed SCAFFOLD, which maintains a set of control variates — one per client and one at the server level — that estimate the direction and magnitude of the gradient bias at each client. During local training, the gradient update is shifted by the difference between the global and local control variates, effectively compensating for the distributional mismatch. The theoretical analysis demonstrated that SCAFFOLD achieves convergence rates independent of the degree of heterogeneity, a significant improvement over both FedAvg and FedProx in the full-participation setting. However, the practical behavior of SCAFFOLD under partial participation remained less well characterized.
+Karimireddy et al. \cite{karimireddy2020scaffold} diagnosed client drift as the primary convergence bottleneck in heterogeneous federated settings and introduced SCAFFOLD. This method maintains a pair of control variates --- one per client and one at the server --- that estimate the direction and magnitude of gradient bias at each client. During local training, the gradient is adjusted by the difference between global and local control variates, effectively counteracting the distributional mismatch. Theoretical analysis established that SCAFFOLD achieves convergence rates independent of heterogeneity degree, a marked improvement over both FedAvg and FedProx in full-participation settings. The key insight is that control variates transform a heterogeneous optimization problem into a series of approximately homogeneous subproblems, each of which can be solved efficiently. Nevertheless, the practical behavior of SCAFFOLD under partial participation has remained less thoroughly investigated, as the original analysis assumed either full participation or a carefully controlled sampling schedule.
 
-Wang et al. \cite{wang2020fednova} introduced FedNova, which addresses the issue of objective inconsistency arising from unequal numbers of local updates across clients. By normalizing local updates before aggregation, FedNova can be combined with existing methods and has been shown to improve convergence in settings with heterogeneous computation budgets.
+Wang et al. \cite{wang2020fednova} proposed FedNova, which addresses objective inconsistency caused by differing numbers of local update steps across clients. By normalizing local updates before aggregation, FedNova can complement existing methods and has shown convergence improvements when clients have unequal computation budgets. Additional approaches have sought to address the heterogeneity challenge through alternative mechanisms. Li et al. \cite{li2021moon} introduced MOON, which applies contrastive learning at the model level, using the representations produced by the global model and the previous local model to regularize local training. Acar et al. \cite{acar2021feddyn} proposed FedDyn, which dynamically adjusts a linear penalty term to align local and global objectives, achieving convergence guarantees that improve upon FedProx without requiring control variates. While these newer methods demonstrate theoretical improvements over FedAvg and FedProx, their comparative performance under varying participation rates has not been systematically evaluated, and they remain less widely deployed in practice than the three algorithms studied in this work.
 
-\subsection{Non-IID Data and Heterogeneity}
+\subsection{Non-IID Data Distributions in Federated Settings}
 
-The challenge of training under heterogeneous data distributions has generated a rich body of work. Zhu et al. \cite{zhu2021noniid} provided an early systematic categorization of non-IID data types — including feature skew, label skew, and quantity skew — and surveyed corresponding mitigation strategies ranging from data sharing to global regularization. Their review noted that most proposed solutions had been validated only on standard benchmark distributions, leaving performance under real-world extremes largely uncharacterized. More recently, Ye et al. \cite{ye2023heterogeneous} expanded the scope of heterogeneity analysis to three simultaneous dimensions — system (hardware), statistical (data), and model (architecture) — and observed that the overwhelming majority of existing work addresses these dimensions in isolation rather than studying their interactions.
+Training under heterogeneous data distributions has attracted substantial research attention. Zhu et al. \cite{zhu2021noniid} provided one of the first systematic categorizations of non-IID data types --- including feature skew, label skew, and quantity skew --- and surveyed corresponding mitigation strategies spanning data sharing to global regularization. Their review observed that the majority of proposed techniques had been validated solely on standard benchmark distributions, with performance under realistic extremes remaining poorly characterized. More recently, Ye et al. \cite{ye2023heterogeneous} broadened the heterogeneity landscape to encompass three co-occurring dimensions --- system (hardware), statistical (data), and model (architecture) --- and noted that the vast majority of existing work treats these dimensions independently rather than examining their interactions.
 
-The Dirichlet-based partitioning strategy, which draws label proportions for each client from a symmetric Dirichlet distribution $\text{Dir}(\alpha)$, has become the standard approach for controlled heterogeneity experiments \cite{hsu2019dirichlet}. The concentration parameter $\alpha$ provides a continuous control over the degree of heterogeneity: as $\alpha \to 0$, each client's data converges to a single class, while large $\alpha$ values produce approximately uniform label distributions across clients.
+An alternative line of research has explored data-level interventions rather than algorithmic modifications. Zhao et al. \cite{zhao2018noniid} demonstrated that sharing a small fraction (5\%) of globally representative data with each client can substantially mitigate the adverse effects of non-IID distributions, reducing accuracy loss from 11\% to 1.7\% on CIFAR-10 with CNN models. While effective, this approach conflicts with the privacy-preserving premise of federated learning and is infeasible in settings where even small data transfers are prohibited by regulation. This tension highlights the importance of understanding which algorithmic strategies can achieve robustness without requiring any form of data sharing.
 
-Li et al. \cite{li2022niid} conducted the most extensive benchmarking effort to date through NIID-Bench. They compared FedAvg, FedProx, SCAFFOLD, and FedNova across nine datasets using three distinct types of non-IID distributions. Their study produced six numbered findings characterizing the relative performance of these algorithms under various conditions. Particularly relevant to our work is their Finding~6, which noted that SCAFFOLD fails to converge effectively under partial participation but did not explore this phenomenon across multiple participation rates or heterogeneity levels. Their partial participation experiment used 100 clients with a fixed 10\% sample rate and a default Dirichlet $\alpha$ of 0.5, leaving the joint parameter space largely unexplored. Broader surveys of FL challenges \cite{wen2023survey} and FL for IoT \cite{nguyen2021iot} have similarly identified the interaction between multiple practical constraints as a persistent blind spot in the literature, with most comparative studies isolating one variable at a time.
+The Dirichlet-based partitioning scheme, which samples label proportions for each client from a symmetric Dirichlet distribution $\text{Dir}(\alpha)$, has been widely adopted as the standard method for controlled heterogeneity experiments \cite{hsu2019dirichlet}. The concentration parameter $\alpha$ provides continuous control over distributional skew: as $\alpha \to 0$, each client's data converges toward a single class, while large $\alpha$ values yield approximately uniform label proportions across clients. This parametric formulation enables researchers to systematically explore the transition from extreme heterogeneity to near-IID conditions, making it the preferred tool for benchmarking FL algorithms under controlled distributional assumptions.
+
+Li et al. \cite{li2022niid} undertook the most comprehensive benchmarking effort to date with NIID-Bench, comparing FedAvg, FedProx, SCAFFOLD, and FedNova across nine datasets using three distinct non-IID distribution types. Their study produced six enumerated findings characterizing relative algorithm performance under varied conditions. Most relevant to this work is Finding~6, which documented SCAFFOLD's inability to converge effectively under partial participation --- but this observation was drawn from a single configuration of 100 clients with a fixed 10\% sample rate and a default $\alpha$ of 0.5, leaving the joint influence of participation rate and heterogeneity severity unmapped. Furthermore, their evaluation protocol reported only final accuracy without analyzing intermediate training dynamics, which --- as our results will demonstrate --- can reveal critical instability patterns that terminal metrics alone do not capture. Broader surveys of FL challenges \cite{wen2023survey} and FL for IoT applications \cite{nguyen2021iot} have likewise identified the interplay between multiple deployment constraints as a persistent gap, with most comparative evaluations varying only one factor at a time.
 
 \subsection{Partial Participation in Federated Learning}
 
-The theoretical implications of partial client participation have received growing attention. Yang et al. \cite{yang2021partial} analyzed the convergence of FedAvg under arbitrary participation patterns and established bounds that explicitly capture the variance introduced by client sampling. Their analysis revealed that partial participation introduces an additive error term proportional to the heterogeneity of the client objectives, suggesting that the effects of non-IID data and incomplete participation may compound rather than simply add.
+The theoretical ramifications of incomplete client participation have drawn increasing scrutiny. Yang et al. \cite{yang2021partial} derived convergence bounds for FedAvg under arbitrary participation patterns, demonstrating that partial participation introduces an additive error term proportional to the heterogeneity of client objectives. This result implies that the adverse effects of non-IID data and missing client contributions may compound rather than merely accumulate --- a hypothesis that our empirical analysis directly tests by examining performance across the full two-dimensional grid of both factors.
 
-More recently, Cho et al. \cite{cho2023power} proposed biased client selection strategies that prioritize clients with higher local losses, demonstrating that strategic participation can accelerate convergence relative to uniform random sampling. Mishchenko et al. \cite{mishchenko2022proxskip} introduced ProxSkip, which probabilistically skips communication rounds to reduce overhead while maintaining convergence guarantees. Glasgow et al. \cite{glasgow2024amplified} proposed Amplified SCAFFOLD to specifically address the degradation of control variates under partial participation, but their focus was on developing a new algorithm rather than benchmarking existing ones across the combined parameter space.
+Cho et al. \cite{cho2023power} explored biased client selection policies that prioritize clients with higher local losses, showing that intentional non-uniform sampling can accelerate convergence relative to random selection. Their work underscores the distinction between the \textit{rate} of participation (how many clients participate) and the \textit{pattern} of participation (which clients are selected), both of which influence training outcomes. In our study, we employ uniform random selection to isolate the effect of participation rate from selection bias. Mishchenko et al. \cite{mishchenko2022proxskip} introduced ProxSkip, which stochastically omits communication rounds to lower overhead while preserving convergence guarantees. Glasgow et al. \cite{glasgow2024amplified} proposed Amplified SCAFFOLD to directly counter the degradation of control variates under partial participation, though their contribution centered on algorithm development rather than benchmarking existing methods across a combined parameter space.
 
-The gap our work addresses is precisely this: while the theoretical community has established that participation rate and data heterogeneity interact in non-trivial ways, no empirical study has systematically mapped this interaction for the three most widely adopted algorithms across a comprehensive grid of both parameters.
+A common thread across these theoretical investigations is the recognition that participation rate interacts with heterogeneity in ways that simple analyses cannot fully capture. Yang et al.'s error bound, for example, contains a product of heterogeneity and participation-dependent terms, indicating that the combined effect can be superlinear. Our work provides the first empirical validation of this theoretical prediction across a comprehensive parameter grid, demonstrating that the interaction indeed produces non-linear and algorithm-dependent outcomes --- including catastrophic model collapse at specific operating points and counterintuitive ranking inversions.
 
 
 % ============================================================================
@@ -113,51 +117,55 @@ The gap our work addresses is precisely this: while the theoretical community ha
 
 \subsection{Problem Formulation}
 
-We consider a standard federated learning setting with $N$ clients, where each client $i$ holds a local dataset $\mathcal{D}_i$. The goal is to minimize the global objective:
+We consider a standard federated learning setting comprising $N$ clients, where each client $i$ maintains a local dataset $\mathcal{D}_i$. The objective is to minimize the global loss:
 \begin{equation}
     \min_w F(w) = \sum_{i=1}^{N} \frac{|\mathcal{D}_i|}{|\mathcal{D}|} F_i(w)
 \end{equation}
-where $F_i(w) = \mathbb{E}_{(x,y) \sim \mathcal{D}_i}[\ell(w; x, y)]$ is the local objective of client $i$ and $\ell$ denotes the cross-entropy loss.
+where $F_i(w) = \mathbb{E}_{(x,y) \sim \mathcal{D}_i}[\ell(w; x, y)]$ denotes the local objective of client $i$ and $\ell$ represents the cross-entropy loss function. In the standard federated setting, the global loss is a weighted combination of local losses, where the weighting reflects each client's share of the total data.
 
-At each communication round $t$, the server selects a subset $\mathcal{S}_t \subseteq \{1, \ldots, N\}$ of clients uniformly at random, where $|\mathcal{S}_t| = \lfloor p \cdot N \rfloor$ and $p$ is the participation rate. Selected clients receive the current global model $w^t$, perform local updates, and return their updated parameters to the server for aggregation.
+At each communication round $t$, the server uniformly samples a subset $\mathcal{S}_t \subseteq \{1, \ldots, N\}$ of clients, where $|\mathcal{S}_t| = \lfloor p \cdot N \rfloor$ and $p$ is the participation rate. Selected clients receive the current global model $w^t$, execute local optimization steps, and transmit their updated parameters to the server for aggregation. Clients that are not selected retain their previous state and do not contribute to the round's update. This sampling-based protocol introduces two sources of randomness: the stochasticity of the local SGD optimization and the stochasticity of the client selection itself. The latter becomes increasingly significant at lower participation rates, where the selected subset may substantially misrepresent the overall data distribution.
 
 \subsection{Data Partitioning via Dirichlet Distribution}
 
-To generate heterogeneous data distributions in a controlled manner, we employ the Dirichlet-based label distribution partitioning scheme. For each class $c$ in the dataset, we sample a probability vector $q_c \sim \text{Dir}(\alpha)$ over the $N$ clients, where $\alpha > 0$ is the concentration parameter. The samples of class $c$ are then allocated to clients according to the proportions specified by $q_c$.
+To generate controlled heterogeneous data distributions, we adopt the Dirichlet-based label partitioning scheme. For each class $c$ in the dataset, a probability vector $q_c \sim \text{Dir}(\alpha)$ is drawn over $N$ clients, where $\alpha > 0$ is the concentration parameter. Samples of class $c$ are then distributed across clients according to the proportions specified by $q_c$.
 
-Smaller values of $\alpha$ produce more concentrated distributions, where each client receives data dominated by a small number of classes. In our experiments, we use four values spanning two orders of magnitude:
+The Dirichlet distribution over $N$ categories with concentration parameter $\alpha$ has the property that its variance decreases as $\alpha$ increases. Specifically, for a Dirichlet random variable $q \sim \text{Dir}(\alpha)$, the expected value of each component is $1/N$ regardless of $\alpha$, but the variance of each component is $\frac{N-1}{N^2(N\alpha + 1)}$, which decreases as $\alpha$ grows. At extremely small values of $\alpha$ (e.g., $\alpha = 0.05$), the sampled vectors tend to be highly concentrated, meaning most of the probability mass falls on one or two components. This produces clients whose local datasets are dominated by a narrow subset of classes. At larger values (e.g., $\alpha = 1.0$), the sampled vectors approach uniformity, yielding clients with approximately balanced label distributions. This parametric control enables a smooth transition between extreme heterogeneity and the IID baseline.
+
+Our experiments span four $\alpha$ values covering two orders of magnitude:
 
 \begin{itemize}
-    \item $\alpha = 0.05$: Extreme heterogeneity. Most clients see only 1--2 digit classes, simulating highly specialized data silos.
-    \item $\alpha = 0.1$: Severe heterogeneity. Clients are dominated by a few classes with minimal representation of others.
-    \item $\alpha = 0.5$: Moderate heterogeneity. All classes are present at each client, but with significant imbalance.
-    \item $\alpha = 1.0$: Mild heterogeneity. Label distributions are approximately uniform, approaching the IID setting.
+    \item $\alpha = 0.05$: Extreme heterogeneity. Most clients observe only 1--2 digit classes, representing highly specialized data silos characteristic of medical imaging or niche manufacturing scenarios.
+    \item $\alpha = 0.1$: Severe heterogeneity. Clients receive data dominated by a small number of classes, with minimal representation of the remaining categories. This level creates substantial gradient conflicts across clients.
+    \item $\alpha = 0.5$: Moderate heterogeneity. Every class is present at each client, though with considerable distributional imbalance. This corresponds to the default setting used in many FL benchmarks, including NIID-Bench \cite{li2022niid}.
+    \item $\alpha = 1.0$: Mild heterogeneity. Label proportions are roughly uniform across clients, approximating the IID setting while retaining some distributional variation.
 \end{itemize}
 
 \subsection{Algorithm Implementations}
 
-We implement three federated aggregation algorithms using PyTorch, following the descriptions in their respective original publications as closely as possible within a unified simulation framework.
+All three algorithms are implemented in PyTorch within a unified simulation framework, following the specifications of their respective original publications. The framework ensures that for any given ($\alpha$, $p$) combination, all three algorithms receive identical data partitions, identical initial model weights, and identical client selection sequences across rounds, so that observed performance differences are attributable solely to the aggregation strategy.
 
-\subsubsection{FedAvg} Each selected client $i \in \mathcal{S}_t$ initializes its local model from the global parameters $w^t$ and performs $E$ epochs of mini-batch SGD with momentum on its local data. The server aggregates the returned parameters using a weighted average proportional to local dataset sizes:
+\subsubsection{FedAvg} Each selected client $i \in \mathcal{S}_t$ initializes its local model with the global parameters $w^t$ and executes $E$ epochs of mini-batch SGD with momentum ($\beta = 0.9$) on its local data. The server produces the updated global model via weighted averaging:
 \begin{equation}
     w^{t+1} = \sum_{i \in \mathcal{S}_t} \frac{|\mathcal{D}_i|}{\sum_{j \in \mathcal{S}_t} |\mathcal{D}_j|} w_i^{t+1}
 \end{equation}
 
-\subsubsection{FedProx} The local training procedure mirrors FedAvg, with the addition of a proximal term to the loss function. Each selected client minimizes:
+\subsubsection{FedProx} Local training mirrors FedAvg, including the use of momentum ($\beta = 0.9$), with the addition of a proximal penalty in the loss function. Each selected client optimizes:
 \begin{equation}
     h_i(w; w^t) = F_i(w) + \frac{\mu}{2}\|w - w^t\|^2
 \end{equation}
-where $\mu = 0.01$ controls the strength of the proximity constraint. We use the same weighted aggregation as FedAvg.
+where $\mu = 0.01$ governs the strength of the proximity constraint. This relatively small value of $\mu$ was selected to provide mild regularization without substantially altering the optimization dynamics; larger values would impose stronger anchoring to the global model but risk impeding local adaptation. Aggregation uses the same weighted scheme as FedAvg.
 
-\subsubsection{SCAFFOLD} Each client maintains a local control variate $c_i$ and the server maintains a global control variate $c$. During local training, the gradient update at each step is corrected by adding $(c - c_i)$ to the computed gradient. After training, the client updates its control variate using Option~II from the original SCAFFOLD paper \cite{karimireddy2020scaffold}:
+\subsubsection{SCAFFOLD} Each client maintains a local control variate $c_i$, and the server maintains a global control variate $c$. During local training, every gradient step is corrected by adding $(c - c_i)$, compensating for distributional bias. Crucially, SCAFFOLD uses momentum-free SGD ($\beta = 0$) for local optimization, as momentum introduces a second-order memory effect that would interfere with the first-order gradient corrections applied by the control variates. Upon completing training, each client updates its control variate using Option~II from the original SCAFFOLD formulation \cite{karimireddy2020scaffold}:
 \begin{equation}
     c_i^{t+1} = c_i^t - c^t + \frac{1}{K\eta}(w^t - w_i^{t+1})
 \end{equation}
-where $K$ is the total number of local gradient steps and $\eta$ is the learning rate. The server control variate is updated by accumulating the changes: $c \leftarrow c + \frac{1}{N}\Delta c_i$.
+where $K$ is the total number of local gradient steps and $\eta$ is the learning rate. The server control variate is updated by accumulating the per-client changes: $c \leftarrow c + \frac{1}{N}\Delta c_i$, where $\Delta c_i = c_i^{t+1} - c_i^t$.
+
+A critical implementation detail concerns the treatment of non-participating clients. When a client does not participate in a given round, its local control variate $c_i$ remains unchanged. As the global model evolves over subsequent rounds, this stale control variate increasingly misrepresents the true gradient bias of the client's data with respect to the current global model. When the client eventually participates, it applies a correction based on outdated information, which can either help or hinder convergence depending on the magnitude of the staleness relative to the actual gradient bias.
 
 \subsection{Model Architecture}
 
-All experiments use a lightweight convolutional neural network consisting of two convolutional layers (16 and 32 filters respectively, each with $3 \times 3$ kernels and padding), two max-pooling layers, and two fully connected layers (64 and 10 units). This architecture contains approximately 52K trainable parameters and is deliberately kept small to ensure that the observed differences in algorithm performance reflect aggregation strategy effectiveness rather than model capacity.
+All experiments employ a convolutional neural network consisting of two convolutional layers (32 and 64 filters with $3 \times 3$ kernels and stride 1, without padding), one $2 \times 2$ max-pooling layer, a dropout layer ($p_{\text{drop}} = 0.25$), and two fully connected layers (128 and 10 units). ReLU activation functions follow the convolutional layers and the first fully connected layer. With $28 \times 28$ grayscale MNIST inputs, the spatial dimensions reduce to $26 \times 26$ after the first convolution, $24 \times 24$ after the second, and $12 \times 12$ after max-pooling, producing a flattened representation of $64 \times 12 \times 12 = 9{,}216$ dimensions. The architecture comprises approximately 1.2 million trainable parameters, the vast majority residing in the first fully connected layer ($9{,}216 \times 128 = 1{,}179{,}648$ weights). While this architecture is sufficient to achieve near-perfect accuracy on MNIST under centralized training, its capacity is deliberately moderate so that observed performance differences across federated configurations reflect the effectiveness of the aggregation strategy rather than model expressiveness.
 
 
 % ============================================================================
@@ -165,9 +173,17 @@ All experiments use a lightweight convolutional neural network consisting of two
 % ============================================================================
 \section{Experimental Setup}
 
-\subsection{Configuration}
+\subsection{Dataset and Preprocessing}
 
-Table~\ref{tab:config} summarizes the experimental parameters.
+We conduct all experiments on the MNIST handwritten digit dataset \cite{lecun1998mnist}, which consists of 60,000 training images and 10,000 test images across 10 classes (digits 0--9). Each image is a $28 \times 28$ grayscale pixel grid normalized to the $[0, 1]$ range.
+
+The choice of MNIST as the evaluation benchmark warrants justification. Although MNIST is considered a relatively straightforward classification task by contemporary standards, it is well suited for this study for several reasons. First, MNIST's low computational requirements permit exhaustive experimentation across all 48 configurations within tractable time and resource budgets. Second, the simplicity of the task ensures that all algorithms can achieve high accuracy under favorable conditions (IID data, full participation), establishing a clear baseline against which the effects of heterogeneity and partial participation can be measured in isolation. Third, prior benchmarking studies --- including NIID-Bench \cite{li2022niid} and the work of Dai et al. \cite{dai2024empirical} --- have established MNIST-based results as a standard reference point in the FL literature, facilitating direct comparison. Finally, the algorithmic phenomena we investigate --- model collapse, control variate staleness, and convergence dynamics --- are properties of the optimization process rather than the dataset complexity, and our results demonstrate that even a low-complexity task can reveal dramatic behavioral differences across algorithms when operating conditions are sufficiently challenging.
+
+The 60,000 training samples are partitioned across 10 clients using the Dirichlet-based scheme described in Section~III-B, while the full 10,000-sample test set is retained as a centralized evaluation benchmark. This ensures that test accuracy reflects the global model's ability to generalize across all digit classes, regardless of how unevenly those classes may be distributed during training.
+
+\subsection{Training Configuration}
+
+Table~\ref{tab:config} summarizes the complete experimental configuration.
 
 \begin{table}[htbp]
 \caption{Experimental Configuration}
@@ -177,7 +193,7 @@ Table~\ref{tab:config} summarizes the experimental parameters.
 \toprule
 \textbf{Parameter} & \textbf{Value} \\
 \midrule
-Dataset & MNIST \\
+Dataset & MNIST (60K train / 10K test) \\
 Number of clients ($N$) & 10 \\
 Communication rounds ($T$) & 30 \\
 Local epochs ($E$) & 1 \\
@@ -193,22 +209,26 @@ Total configurations & 48 \\
 \end{tabular}
 \end{table}
 
-The selection of 10 clients with varying participation rates produces effective cohort sizes of 2, 5, 8, and 10 clients per round. While smaller than the 100-client settings used in some benchmarks \cite{li2022niid}, this configuration is representative of cross-silo federated learning scenarios (e.g., a consortium of hospitals or financial institutions) and permits exhaustive experimentation within manageable compute budgets.
+Using 10 clients with participation rates of 20\%, 50\%, 80\%, and 100\% produces effective cohort sizes of 2, 5, 8, and 10 clients per round. While smaller than the 100-client settings employed in some benchmarks \cite{li2022niid}, this scale is representative of cross-silo federated learning deployments (e.g., hospital consortia, financial institution partnerships, or multi-site manufacturing networks) and permits exhaustive experimentation within feasible compute budgets. The cross-silo setting, in which a moderate number of reliable organizations collaborate, is arguably more relevant for practical deployments than the cross-device setting with thousands of mobile phones, since cross-silo scenarios are where the participation rate can be deliberately managed and algorithm selection most directly impacts outcomes.
+
+The choice to set momentum to zero for SCAFFOLD follows from the algorithm's theoretical requirements: control variates are designed to correct the gradient direction based on a first-order estimate of client drift, and adding momentum to the local optimizer introduces a second-order memory effect that can interfere with this correction mechanism. Empirically, the original SCAFFOLD paper \cite{karimireddy2020scaffold} used vanilla SGD without momentum, and we maintain this convention. For FedAvg and FedProx, standard momentum ($\beta = 0.9$) is used to accelerate convergence, as both algorithms rely on the smoothed gradient trajectory to navigate noisy optimization landscapes. This difference in optimizer configuration is an intrinsic aspect of how each algorithm is deployed in practice, not an experimental confound, and its impact on performance forms one of our central findings.
 
 \subsection{Evaluation Metrics}
 
 For each of the 48 configurations, we record:
 \begin{itemize}
-    \item \textbf{Final test accuracy}: Global model accuracy on the held-out MNIST test set after 30 rounds.
-    \item \textbf{Rounds to 80\% accuracy}: The first evaluation point at which test accuracy reaches or exceeds 80\%, serving as a convergence speed indicator. Configurations that never reach this threshold are assigned the maximum value of 30.
-    \item \textbf{Per-client accuracy statistics}: Mean, standard deviation, and minimum accuracy across all clients when evaluated on their respective local training data. This captures the fairness of the learned global model --- whether it performs well for all clients or favors those with more typical data distributions.
+    \item \textbf{Final test accuracy}: Classification accuracy of the global model on the held-out MNIST test set after 30 rounds.
+    \item \textbf{Round-by-round accuracy trajectory}: Test accuracy at 11 evaluation points (rounds 1, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30), providing a detailed view of convergence dynamics, oscillation patterns, and potential instabilities.
+    \item \textbf{Rounds to 80\% accuracy}: The earliest evaluation point at which test accuracy meets or exceeds 80\%, serving as a convergence speed indicator. Configurations that fail to reach this threshold are assigned the maximum value of 30.
+    \item \textbf{Per-client accuracy statistics}: Mean, standard deviation, and minimum accuracy across all clients evaluated on their respective local training data, capturing the distributional fairness of the global model --- whether it performs equitably for all participants or disproportionately favors clients with more typical data distributions.
+    \item \textbf{Training loss}: The cross-entropy loss at each evaluation point, providing a complementary signal to accuracy that is particularly informative when the model approaches collapse.
 \end{itemize}
-
-Test accuracy is evaluated every 3 communication rounds and at round~1, yielding 11 measurement points per experiment.
 
 \subsection{Reproducibility}
 
-All data partitions use a fixed random seed of 42. Client selection at each round uses the same random number generator state across algorithms for a given ($\alpha$, $p$) pair, ensuring that differences in performance arise solely from the aggregation strategy rather than from which clients happened to participate. The complete experimental code is publicly available.\footnote{\url{https://github.com/parthp-4/fl-participation-noniid-study}}
+All data partitions use a fixed random seed of 42. Client selection at each round employs the same random number generator state across algorithms for a given ($\alpha$, $p$) pair, ensuring that observed performance differences stem solely from the aggregation strategy itself. The complete experimental codebase is publicly available.\footnote{\url{https://github.com/parthp-4/fl-participation-noniid-study}}
+
+We acknowledge that using a single seed per configuration means our results characterize algorithm behavior under one specific realization of the Dirichlet distribution. While averaging over multiple seeds would provide stronger statistical guarantees, the single-seed design has the advantage of producing perfectly controlled comparisons: every algorithm sees exactly the same data partition and client selection sequence for each ($\alpha$, $p$) pair, allowing us to attribute all performance differences to the aggregation strategy. Nevertheless, findings that are sensitive to the particular partition --- such as the model collapse phenomenon at $\alpha = 0.1$, $p = 0.2$ --- should be interpreted as representative rather than universal.
 
 
 % ============================================================================
@@ -216,63 +236,75 @@ All data partitions use a fixed random seed of 42. Client selection at each roun
 % ============================================================================
 \section{Results and Discussion}
 
-% ============================================================================
-% IMPORTANT: The content below uses PLACEHOLDER values marked with 
-% XX.X, YY.Y, etc. After running your 48 experiments on Colab, you MUST 
-% replace every placeholder with your actual experimental numbers.
-%
-% The narrative structure and analysis framework below is genuine — it 
-% describes the EXPECTED behavior based on theoretical properties of these 
-% algorithms. Your actual numbers may differ in the specifics, so adjust 
-% the writing to match what you actually observe.
-% ============================================================================
-
 \subsection{Overall Performance Landscape}
 
-Figure~\ref{fig:heatmaps} presents the central result of this study: accuracy heatmaps for each algorithm across the full $4 \times 4$ grid of participation rates and Dirichlet $\alpha$ values.
+Table~\ref{tab:results} reports the final test accuracy for all 48 experimental configurations, and Figure~\ref{fig:heatmaps} presents the corresponding accuracy heatmaps across the full $4 \times 4$ grid.
+
+\begin{table*}[htbp]
+\caption{Final Test Accuracy (\%) Across All 48 Configurations. Bold values indicate the best-performing algorithm for each ($\alpha$, $p$) pair.}
+\label{tab:results}
+\centering
+\begin{tabular}{l|cccc|cccc|cccc}
+\toprule
+& \multicolumn{4}{c|}{\textbf{FedAvg}} & \multicolumn{4}{c|}{\textbf{FedProx}} & \multicolumn{4}{c}{\textbf{SCAFFOLD}} \\
+\diagbox{$p$}{$\alpha$} & 0.05 & 0.1 & 0.5 & 1.0 & 0.05 & 0.1 & 0.5 & 1.0 & 0.05 & 0.1 & 0.5 & 1.0 \\
+\midrule
+20\% & \textbf{57.76} & 11.95 & 95.59 & \textbf{97.18} & 27.63 & 14.41 & \textbf{95.83} & 96.65 & 42.29 & \textbf{67.74} & 90.53 & 86.19 \\
+50\% & 81.13 & 95.90 & 97.21 & 97.81 & \textbf{85.61} & \textbf{96.86} & \textbf{97.26} & \textbf{98.07} & 79.01 & 90.25 & 92.39 & 92.48 \\
+80\% & 93.94 & \textbf{97.18} & 97.60 & 97.79 & \textbf{96.10} & 97.06 & \textbf{97.76} & \textbf{98.10} & 90.76 & 90.12 & 92.06 & 92.56 \\
+100\% & \textbf{96.80} & \textbf{97.34} & 97.23 & \textbf{98.05} & 96.64 & 97.32 & \textbf{97.32} & 97.98 & 92.32 & 89.62 & 91.25 & 93.39 \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 \begin{figure*}[htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/fig2_heatmap_all.png}
-    \caption{Final test accuracy for FedAvg (left), FedProx (center), and SCAFFOLD (right) across all combinations of Dirichlet $\alpha$ (columns) and participation rate (rows). Warmer colors indicate higher accuracy. SCAFFOLD shows the largest accuracy variation across the grid, with a pronounced drop in the low-participation, low-$\alpha$ corner.}
+    \caption{Final test accuracy for FedAvg (left), FedProx (center), and SCAFFOLD (right) across all combinations of Dirichlet $\alpha$ (columns) and participation rate (rows). Warmer colors indicate higher accuracy. SCAFFOLD exhibits the greatest variation across the grid and a visibly lower ceiling compared to both FedAvg and FedProx.}
     \label{fig:heatmaps}
 \end{figure*}
 
-Several patterns emerge from these heatmaps. First, FedAvg and FedProx perform consistently well in the upper-right region of the grid (high participation, high $\alpha$), both exceeding 97\% accuracy. At $\alpha=1.0$ with full participation, FedAvg reached 98.05\% and FedProx reached 97.98\%. SCAFFOLD, however, peaked at only 93.39\% under these same ideal conditions --- an unexpected 4.66 percentage point gap.
+Several observations emerge from these results. First, FedAvg and FedProx achieve strong accuracy across the upper-right region of the grid (high participation, high $\alpha$). At $\alpha = 1.0$ with full participation, FedAvg reached 98.05\% and FedProx reached 97.98\%, whereas SCAFFOLD peaked at only 93.39\% --- an unexpected 4.66 percentage point deficit under these near-ideal conditions.
 
-At the extreme operating point of $\alpha=0.05$ with 20\% participation, FedAvg achieved 57.76\% accuracy, FedProx reached only 27.63\%, while SCAFFOLD dropped to 42.29\%. Under moderate heterogeneity ($\alpha \geq 0.5$), FedAvg and FedProx both maintained accuracy above 95\% even at low participation, while SCAFFOLD consistently lagged at 86--91\%.
+Second, the degradation patterns differ qualitatively across algorithms. At moderate heterogeneity ($\alpha \geq 0.5$), FedAvg and FedProx both sustained accuracy above 95\% regardless of participation level, while SCAFFOLD remained bounded between 86.19\% and 93.39\%. Specifically, at $\alpha = 0.5$, FedAvg spanned 95.59--97.23\% across all participation rates, FedProx spanned 95.83--97.32\%, and SCAFFOLD spanned 90.53--92.39\%. This persistent 5--7 percentage point deficit suggests that SCAFFOLD's accuracy ceiling is not merely a consequence of its difficulty with partial participation, but rather an inherent characteristic of the algorithm's optimizer configuration in this experimental setting.
 
-Second, the degradation patterns differ qualitatively across algorithms. FedAvg and FedProx exhibit strong sensitivity to extreme heterogeneity ($\alpha \leq 0.1$) at low participation, but recover rapidly as either parameter improves. SCAFFOLD, by contrast, shows a ceiling effect: even under favorable conditions ($\alpha=1.0$, $p=1.0$), it failed to match the accuracy achieved by FedAvg and FedProx, suggesting that additional computational overhead of control variates introduces optimization difficulties with the momentum-free SGD optimizer required by SCAFFOLD.
+Third, and most strikingly, the algorithm rankings invert under specific extreme conditions. At $\alpha = 0.1$ with only 20\% participation, FedAvg collapsed to 11.95\% and FedProx to 14.41\% --- both approaching random-chance accuracy on the 10-class problem. SCAFFOLD, by contrast, maintained 67.74\% accuracy at this same operating point. The total performance range across the 16-cell grid quantifies each algorithm's sensitivity to operating conditions: FedAvg spanned 86.10 percentage points (11.95--98.05\%), FedProx spanned 83.69 points (14.41--98.10\%), and SCAFFOLD spanned only 51.10 points (42.29--93.39\%). SCAFFOLD's narrower range reflects a fundamental trade-off: lower peak performance coupled with greater resistance to catastrophic degradation.
 
-\subsection{Convergence Behavior}
+\subsection{Training Trajectory Analysis}
 
-Figure~\ref{fig:convergence} shows the round-by-round accuracy trajectories under severe heterogeneity ($\alpha = 0.1$) across all participation rates for each algorithm.
+While final accuracy captures the endpoint of training, the round-by-round trajectories reveal dynamics that are invisible in terminal metrics alone. Figure~\ref{fig:convergence} displays the accuracy trajectories under severe heterogeneity ($\alpha = 0.1$) across all participation rates.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{figures/fig1_convergence_alpha01.png}
-    \caption{Test accuracy over 30 communication rounds at $\alpha = 0.1$ across all participation rates. FedAvg and FedProx converge rapidly at $p \geq 50\%$, while SCAFFOLD shows slower convergence and a lower ceiling across all participation levels.}
+    \caption{Test accuracy over 30 communication rounds at $\alpha = 0.1$ for varying participation rates. FedAvg and FedProx converge quickly at $p \geq 50\%$ but collapse at $p = 20\%$, while SCAFFOLD maintains monotonic, albeit slower, progress across all participation levels.}
     \label{fig:convergence}
 \end{figure}
 
-At $\alpha = 0.1$ with full participation, FedAvg reached 97.34\% and FedProx reached 97.32\%, while SCAFFOLD plateaued at only 89.62\%. The convergence curves reveal that FedAvg and FedProx benefit substantially from increased participation: at $p=0.5$ both reached approximately 96\% accuracy, compared to only 12--14\% at $p=0.2$. SCAFFOLD showed a more gradual improvement with participation (67.74\% at $p=0.2$ to 89.62\% at $p=1.0$), but never achieved the accuracy levels of the other two algorithms.
+At $\alpha = 0.1$ with full participation, FedAvg attained 97.34\% and FedProx attained 97.32\%, while SCAFFOLD plateaued at 89.62\%. The convergence traces reveal that FedAvg and FedProx derive substantial benefit from increased participation: at $p = 0.5$, both algorithms reached approximately 96\%, compared to only 12--14\% at $p = 0.2$. This extreme sensitivity reflects the stochasticity of client selection at small cohort sizes --- with 2 clients per round, a single unfavorable sampling event can override the accumulated progress from prior rounds.
 
-\subsection{SCAFFOLD Degradation Under Partial Participation}
+The most revealing aspect of the trajectory data concerns the \textit{mechanism} of model collapse at $\alpha = 0.1$, $p = 0.2$. FedAvg did not simply fail to converge; it achieved 74.48\% accuracy at round 24 before catastrophically deteriorating to 11.95\% by round 30. The corresponding training loss spiked from 0.95 at round 24 to 14.06 at round 30 --- a 14.8$\times$ increase in just six communication rounds. FedProx exhibited a nearly identical trajectory, reaching 73.23\% at round 24 before collapsing to 14.41\% with a loss spike from 0.79 to 10.79. This pattern indicates that the models achieved functional accuracy through the majority of training, only to be destabilized by a particularly adverse sequence of client selections in the final rounds where the two sampled clients held sharply conflicting data distributions, causing the aggregated model to oscillate violently and ultimately settle on a degenerate solution.
 
-The most striking finding of our study concerns SCAFFOLD's overall performance ceiling and its sensitivity to partial participation under high heterogeneity. Figure~\ref{fig:degradation} illustrates this interaction.
+SCAFFOLD at the same operating point showed a qualitatively different trajectory. Its accuracy reached 79.53\% at round 24, experienced a temporary dip to 28.19\% at round 27 (with loss rising to 3.84), but then recovered to 67.74\% by round 30 (loss decreasing to 0.96). This recovery behavior --- absent in both FedAvg and FedProx --- demonstrates that the control variate mechanism provides a form of gradient inertia that can pull the model back from transient disruptions, even when those disruptions are severe enough to cause permanent collapse in algorithms lacking such corrections.
+
+\subsection{SCAFFOLD: Ceiling Effect and Non-Monotonic Participation Response}
+
+The most notable finding concerns the dual nature of SCAFFOLD's performance: a lower accuracy ceiling coupled with greater resilience under specific extreme conditions. Figure~\ref{fig:degradation} illustrates this interaction.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{figures/fig4_participation_degradation.png}
-    \caption{Final accuracy as a function of participation rate at $\alpha = 0.05$ (left) and $\alpha = 0.5$ (right). At extreme heterogeneity, all algorithms degrade substantially at low participation, but FedAvg recovers fastest. At moderate heterogeneity, FedAvg and FedProx remain above 95\% while SCAFFOLD plateaus at 90--92\%.}
+    \caption{Final accuracy as a function of participation rate at $\alpha = 0.05$ (left) and $\alpha = 0.5$ (right). At extreme heterogeneity, all algorithms degrade with reduced participation, though FedAvg recovers to the highest levels at $p \geq 0.8$. At moderate heterogeneity, FedAvg and FedProx sustain accuracy above 95\% while SCAFFOLD remains near 90--92\%.}
     \label{fig:degradation}
 \end{figure}
 
-At $\alpha = 0.05$, SCAFFOLD's accuracy ranged from 42.29\% ($p=0.2$) to 92.32\% ($p=1.0$). While the absolute drop of 50 points is dramatic, FedAvg exhibited a similarly large range (57.76\% to 96.80\%). The key distinguishing observation is at moderate heterogeneity ($\alpha=0.5$): here, FedAvg ranged from 95.59\% to 97.23\% across participation levels, while SCAFFOLD ranged from only 90.53\% to 91.25\% --- a near-constant performance gap of approximately 5--6 percentage points regardless of participation rate.
+At $\alpha = 0.05$, SCAFFOLD's accuracy ranged from 42.29\% ($p = 0.2$) to 92.32\% ($p = 1.0$), a span of 50 percentage points. FedAvg exhibited a comparably wide range of 57.76\% to 96.80\%, achieving better absolute accuracy at every participation level. FedProx showed the most volatile behavior in this regime, ranging from 27.63\% ($p = 0.2$) to 96.64\% ($p = 1.0$) --- a 69 percentage point variation. At moderate heterogeneity ($\alpha = 0.5$), the performance gap between algorithm families became the dominant pattern: FedAvg ranged from 95.59\% to 97.23\% and FedProx from 95.83\% to 97.32\%, while SCAFFOLD remained between 90.53\% and 92.39\% --- a persistent 5--7 percentage point deficit across all participation levels.
 
-The mechanism behind SCAFFOLD's underperformance relates to the interaction between control variates and training dynamics. SCAFFOLD requires momentum-free SGD to maintain the mathematical properties of its correction terms, while FedAvg and FedProx benefit from momentum ($\beta = 0.9$), which smooths the noisy gradients inherent to small client datasets. Additionally, when only a subset of clients participates in each round, non-participating clients retain stale local control variates $c_i$ that become increasingly inaccurate as the global model evolves. When these clients eventually participate, the corrections they apply are based on outdated information.
+A counterintuitive finding emerges in SCAFFOLD's response to increasing participation at certain heterogeneity levels. At $\alpha = 0.1$, SCAFFOLD's accuracy was 67.74\% at $p = 0.2$, peaked at 90.25\% at $p = 0.5$, and then slightly declined to 90.12\% at $p = 0.8$ and 89.62\% at $p = 1.0$. A similar non-monotonic pattern appears at $\alpha = 0.5$: the accuracy peaked at 92.39\% ($p = 0.5$) and decreased to 91.25\% at full participation. This counterintuitive decline at higher participation rates suggests that when all clients participate, SCAFFOLD's control variates are updated simultaneously, which can amplify errors if the global control variate $c$ lags behind the rapidly evolving model. At intermediate participation rates, the staggered updating of control variates --- where some clients retain older corrections while others update --- appears to introduce a beneficial regularization effect that the fully synchronized regime does not provide.
 
-This staleness problem compounds with data heterogeneity. Under mild heterogeneity ($\alpha = 1.0$), the gradient biases across clients are small, so stale control variates introduce only minor errors. Under severe heterogeneity ($\alpha = 0.05$), the gradient biases are large and client-specific, making staleness substantially more damaging.
+The mechanism underlying SCAFFOLD's ceiling effect involves two interacting factors. First, SCAFFOLD requires momentum-free SGD to preserve the mathematical properties of its gradient corrections. FedAvg and FedProx benefit from momentum ($\beta = 0.9$), which smooths noisy gradient estimates inherent to small-batch, small-client settings, accelerating convergence through loss surface valleys. Second, under partial participation, non-participating clients retain stale local control variates $c_i$ that grow increasingly inaccurate as the global model evolves. When these clients subsequently participate, they apply corrections calibrated to an outdated model state.
+
+This staleness problem interacts differently with the degree of heterogeneity. Under mild distributional skew ($\alpha = 1.0$), gradient biases across clients are small, so stale corrections introduce only minor perturbations --- but the lack of momentum still limits SCAFFOLD's convergence speed. Under severe skew ($\alpha \leq 0.1$), gradient biases are large and client-specific, making stale corrections substantially more damaging --- yet, paradoxically, the same correction mechanism provides enough inertia to prevent the catastrophic collapse that afflicts FedAvg and FedProx at the most extreme operating points.
 
 \subsection{Convergence Speed Analysis}
 
@@ -281,40 +313,44 @@ Figure~\ref{fig:rounds_to_80} presents the number of communication rounds requir
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{figures/fig3_rounds_to_80.png}
-    \caption{Rounds required to reach 80\% test accuracy at 20\% participation rate across varying $\alpha$ values. A value of 30 indicates the algorithm did not reach the target within the allotted rounds.}
+    \caption{Rounds required to reach 80\% test accuracy at 20\% participation across varying $\alpha$. A value of 30 indicates the threshold was not reached within the allotted training budget.}
     \label{fig:rounds_to_80}
 \end{figure}
 
-At $\alpha = 0.05$ with 20\% participation, none of the three algorithms reached 80\% accuracy within 30 rounds. At $\alpha = 0.1$, again none converged to 80\% at this low participation rate. At moderate heterogeneity ($\alpha = 0.5$), FedAvg reached the threshold within 9 rounds and FedProx within 6 rounds, while SCAFFOLD required 9 rounds. At $\alpha = 1.0$, all three algorithms converged rapidly: FedAvg and FedProx reached 80\% by round 3, while SCAFFOLD took until round 9.
+At both $\alpha = 0.05$ and $\alpha = 0.1$ with 20\% participation, none of the three algorithms reached 80\% accuracy within 30 rounds. At moderate heterogeneity ($\alpha = 0.5$), FedProx converged to the threshold earliest, reaching 80\% within 6 rounds, while FedAvg and SCAFFOLD each required 9 rounds. At $\alpha = 1.0$, FedAvg and FedProx both achieved 80\% by round 3, whereas SCAFFOLD needed 9 rounds --- a 3$\times$ slower convergence rate under favorable conditions.
 
-These convergence speed results highlight a practical insight: the momentum-based optimization in FedAvg and FedProx provides faster early-stage convergence, particularly under favorable data distributions, while SCAFFOLD's correction mechanism introduces overhead that slows initial progress.
+The convergence speed gap is most pronounced in the favorable region of the parameter space, where SCAFFOLD's gradient correction overhead provides no commensurate benefit. At $\alpha = 1.0$ with full participation, FedAvg and FedProx surpassed 90\% accuracy by round 3, while SCAFFOLD did not reach this level until round 18. This 6$\times$ difference in early-stage convergence carries practical implications: in settings where the communication budget is constrained, the number of rounds available may be insufficient for SCAFFOLD to reach its eventual performance level, even if that level would be adequate for the task at hand.
 
-\subsection{Fairness Across Clients}
+These convergence speed results underscore a practical insight: the momentum-based optimization in FedAvg and FedProx accelerates early-stage convergence, particularly for favorable data distributions, while SCAFFOLD's gradient correction overhead slows initial progress even when it eventually provides comparable or superior stability.
 
-Beyond aggregate accuracy, we examine how equitably the global model serves individual clients. Figure~\ref{fig:fairness} shows the per-client accuracy distribution across participation rates for extreme and mild heterogeneity settings.
+\subsection{Per-Client Accuracy Distribution}
+
+Beyond aggregate performance, we examine how equitably the global model serves individual clients. Figure~\ref{fig:fairness} displays the per-client accuracy distribution at extreme and mild heterogeneity settings.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\columnwidth]{figures/fig5_per_client_variance.png}
-    \caption{Per-client accuracy (mean $\pm$ standard deviation) across participation rates for extreme ($\alpha = 0.05$, left) and mild ($\alpha = 1.0$, right) heterogeneity.}
+    \caption{Per-client accuracy (mean $\pm$ standard deviation) across participation rates for extreme ($\alpha = 0.05$, left) and mild ($\alpha = 1.0$, right) heterogeneity settings.}
     \label{fig:fairness}
 \end{figure}
 
-Under severe heterogeneity ($\alpha = 0.05$), all algorithms exhibit high variance in per-client accuracy, reflecting the fundamental difficulty of learning a global model that serves highly specialized clients equitably. At low participation, the variance is particularly pronounced for SCAFFOLD, as clients with underrepresented data distributions receive corrections based on stale control variates. Under mild heterogeneity ($\alpha = 1.0$), all three algorithms achieve relatively uniform per-client accuracy, with mean values above 85\% and small standard deviations. FedAvg and FedProx maintain tighter per-client distributions than SCAFFOLD across both heterogeneity regimes.
+Under severe heterogeneity ($\alpha = 0.05$), all algorithms exhibit high per-client accuracy variance, reflecting the inherent difficulty of producing a single global model that serves highly specialized data holders equitably. At the model collapse point ($\alpha = 0.1$, $p = 0.2$), the per-client statistics are particularly revealing: FedAvg achieved a per-client mean of only 17.83\% with a standard deviation of 28.22\% and a minimum of 0.14\%, indicating that the global model effectively learned to predict a single digit class. FedProx showed a similar pattern (mean 19.10\%, std 27.91\%, min 0.12\%). SCAFFOLD, by contrast, maintained a per-client mean of 73.47\% with a standard deviation of 18.41\% and a minimum of 36.81\% --- demonstrating that its global model retained competence across most digit classes even when aggregate test accuracy was 67.74\%.
+
+Under mild heterogeneity ($\alpha = 1.0$), all three algorithms produce relatively uniform per-client accuracy, with mean values exceeding 85\% and small standard deviations. FedAvg achieved a per-client standard deviation of only 0.19\% at $\alpha = 1.0$, $p = 1.0$, compared to 0.59\% for SCAFFOLD --- consistent with the observation that FedAvg produces slightly more homogeneous model performance across clients when the underlying data distributions are themselves relatively uniform. The reduced variance confirms that distributional equity is primarily a function of data heterogeneity rather than the aggregation strategy itself.
 
 \subsection{Practical Decision Matrix}
 
-Table~\ref{tab:decision} synthesizes our findings into a recommendation matrix for practitioners, indicating which algorithm is best suited for each combination of expected conditions.
+Table~\ref{tab:decision} synthesizes our findings into a recommendation matrix indicating the best-performing algorithm for each combination of expected operating conditions, based on the final test accuracy reported in Table~\ref{tab:results}.
 
 \begin{table}[htbp]
-\caption{Algorithm Recommendation by Operating Conditions}
+\caption{Algorithm Recommendation by Operating Conditions (Based on Highest Final Test Accuracy)}
 \label{tab:decision}
 \centering
 \begin{tabular}{l|cccc}
 \toprule
 \diagbox{$p$}{$\alpha$} & 0.05 & 0.1 & 0.5 & 1.0 \\
 \midrule
-20\% & FedAvg & FedAvg & FedProx & FedAvg \\
+20\% & FedAvg & SCAFFOLD & FedProx & FedAvg \\
 50\% & FedProx & FedProx & FedProx & FedProx \\
 80\% & FedProx & FedAvg & FedProx & FedProx \\
 100\% & FedAvg & FedAvg & FedProx & FedAvg \\
@@ -322,11 +358,33 @@ Table~\ref{tab:decision} synthesizes our findings into a recommendation matrix f
 \end{tabular}
 \end{table}
 
-Contrary to theoretical expectations, SCAFFOLD did not emerge as the best choice in any region of this parameter space. The pattern that emerges is nuanced: FedAvg is the strongest performer under both extreme conditions (very low or very high $\alpha$) across all participation rates, while FedProx dominates in the moderate heterogeneity regime ($\alpha = 0.5$) and at intermediate participation rates ($p = 0.5$--$0.8$). The proximal regularization in FedProx provides a consistent advantage in the regime where heterogeneity is present but not extreme, while FedAvg's momentum-based optimization recovers strongly when conditions are either very favorable or very challenging.
+The resulting landscape is more nuanced than any single-algorithm recommendation could capture. FedProx yields the highest accuracy across a majority of the parameter space --- it dominates the moderate heterogeneity column ($\alpha = 0.5$) at every participation rate, and performs best at intermediate participation levels ($p \in \{0.5, 0.8\}$) across most $\alpha$ settings. Its proximal regularization provides a consistent stabilizing effect in the regime where heterogeneity is present but not extreme.
+
+FedAvg emerges as the top performer at full participation under both extreme and mild heterogeneity ($\alpha \in \{0.05, 0.1, 1.0\}$), benefiting from its momentum-based optimization when client coverage is complete. FedAvg also achieves the highest accuracy at $\alpha = 0.05$ with 20\% participation (57.76\%), though all three algorithms performed poorly at this point.
+
+SCAFFOLD appears as the recommended choice at a single but significant operating point: $\alpha = 0.1$ with $p = 0.2$. At this configuration, FedAvg and FedProx both suffered catastrophic collapse (11.95\% and 14.41\%, respectively), while SCAFFOLD maintained 67.74\% --- the only algorithm to preserve meaningful accuracy. This result underscores that SCAFFOLD's control variate mechanism, despite imposing an accuracy ceiling under favorable conditions, provides a unique form of training stability under the most adversarial combination of heterogeneity and limited participation.
+
+\subsection{Practical Deployment Insights}
+
+The two-dimensional nature of our analysis enables several actionable deployment recommendations that one-dimensional benchmarks cannot provide:
+
+\textit{For cross-silo deployments with known participation patterns}: If the system designer can estimate the expected participation rate and the approximate degree of data heterogeneity (through, e.g., summary statistics shared during an initialization phase), Table~\ref{tab:decision} provides a direct algorithm selection guide. In the majority of practical scenarios --- moderate heterogeneity with at least 50\% participation --- FedProx is the safest default choice.
+
+\textit{For deployments with uncertain or variable conditions}: When operating conditions are unpredictable, the risk profile of each algorithm should guide selection. FedAvg and FedProx offer higher peak performance but carry the risk of catastrophic collapse under worst-case conditions. SCAFFOLD provides a narrower performance range (51.10 pp vs.\ 83--86 pp for FedAvg/FedProx), offering greater predictability at the cost of a lower ceiling. In safety-critical applications where model collapse is unacceptable, the 5--7 percentage point ceiling penalty of SCAFFOLD may be a worthwhile insurance premium.
+
+\textit{For communication-constrained environments}: When the number of affordable communication rounds is limited, SCAFFOLD's slower convergence (9 rounds vs.\ 3 rounds to reach 80\% at $\alpha = 1.0$) becomes a significant disadvantage. In such settings, FedAvg or FedProx should be preferred unless the heterogeneity level is severe enough to trigger model collapse.
 
 \subsection{Limitations}
 
-Several limitations of this study should be acknowledged. First, our experiments use MNIST, a relatively simple dataset that may not fully capture the difficulty of more complex visual or textual classification tasks. The qualitative patterns we observe — particularly SCAFFOLD's sensitivity to participation — are rooted in algorithmic properties that generalize beyond the specific dataset, but the magnitude of the accuracy differences will vary with task difficulty. Second, our setup uses 10 clients, appropriate for cross-silo scenarios but smaller than the hundreds or thousands of clients typical in cross-device federated learning. The relative severity of partial participation may differ at larger scales. Third, we use a fixed random seed for data partitioning, meaning our results characterize algorithm behavior under one specific realization of the Dirichlet distribution at each $\alpha$ value rather than averaging over multiple random partitions.
+Several limitations of this study warrant acknowledgment. First, our experiments use MNIST, a relatively straightforward classification task that may not fully represent the challenges posed by more complex visual or textual domains. While the qualitative patterns we observe --- particularly SCAFFOLD's ceiling effect and the model collapse phenomenon --- are grounded in algorithmic properties that generalize beyond the specific dataset, the quantitative magnitude of accuracy differences will vary with task complexity. More complex datasets with richer feature spaces may amplify the heterogeneity effects we document, as the conflict between client gradient directions grows with the dimensionality and complexity of the learned representations.
+
+Second, our setup uses 10 clients, representative of cross-silo deployments but substantially smaller than the hundreds or thousands of devices in cross-device federated learning. The dynamics of partial participation at larger scales may differ in important ways: with 100 clients and 10\% participation, 10 clients contribute per round, which would provide substantially better coverage than the 2-client cohort we observe at $p = 0.2$ with 10 total clients.
+
+Third, we employ a single data partition seed per $\alpha$ value, meaning our results characterize algorithm behavior under one specific realization of the Dirichlet distribution rather than averaging over multiple random partitions. The model collapse observed at $\alpha = 0.1$, $p = 0.2$ may be sensitive to the particular partition generated by seed 42; different seeds could produce partitions where the 2-client subsets happen to be more representative, potentially avoiding collapse.
+
+Fourth, the training budget of 30 rounds may be insufficient for some configurations to fully converge; extending the training horizon could alter the relative ordering of algorithms in the most challenging regions of the parameter space.
+
+Fifth, our study evaluates three algorithms and does not include newer methods such as FedNova \cite{wang2020fednova}, MOON \cite{li2021moon}, or FedDyn \cite{acar2021feddyn}, which may exhibit different interaction patterns with the participation-heterogeneity grid. The three algorithms studied here were selected because they represent the most widely adopted aggregation strategies in practice, but the two-dimensional evaluation framework we propose can readily accommodate additional methods.
 
 
 % ============================================================================
@@ -334,13 +392,25 @@ Several limitations of this study should be acknowledged. First, our experiments
 % ============================================================================
 \section{Conclusion}
 
-This paper presented the first systematic experimental study of the joint effect of client participation rate and statistical heterogeneity on the performance of FedAvg, FedProx, and SCAFFOLD. Through 48 controlled experiments spanning four levels of Dirichlet-based data heterogeneity and four participation rates, we demonstrated that the interaction between these two practical constraints is both non-linear and algorithm-specific.
+This paper presented the first systematic experimental study of the joint effect of client participation rate and statistical heterogeneity on the performance of FedAvg, FedProx, and SCAFFOLD. Through 48 controlled experiments spanning four levels of Dirichlet-based heterogeneity and four participation rates, we established that the interaction between these two practical constraints is both non-linear and algorithm-specific. Our key findings are:
 
-Our central finding challenges the conventional wisdom that SCAFFOLD's variance reduction mechanism provides superior convergence in heterogeneous settings. In our experiments, SCAFFOLD consistently underperformed both FedAvg and FedProx across the entire parameter grid, achieving a maximum accuracy of only 93.39\% compared to 98.05\% for FedAvg and 98.10\% for FedProx. This gap is attributable to the interaction between SCAFFOLD's momentum-free optimization requirement and the control variate staleness that arises under partial participation. FedAvg proved to be the strongest performer under both extreme heterogeneity and near-IID conditions, while FedProx provided a consistent edge at moderate heterogeneity ($\alpha = 0.5$). For practitioners, we recommend FedProx as the default choice for deployments with moderate heterogeneity, and FedAvg for either extreme or mild non-IID scenarios.
+\begin{enumerate}
+    \item \textbf{SCAFFOLD's persistent ceiling}: SCAFFOLD reached a maximum of 93.39\% accuracy even under ideal conditions ($\alpha = 1.0$, $p = 1.0$), compared to 98.05\% for FedAvg and 98.10\% for FedProx. This 4.66--4.71 percentage point deficit is attributable to the momentum-free SGD optimizer that SCAFFOLD requires to maintain its control variate corrections.
 
-These findings fill a gap identified but left unexplored by Li et al. \cite{li2022niid}, who noted SCAFFOLD's failure under partial participation at a single operating point. Our two-dimensional analysis provides the granularity needed for informed algorithm selection in practical federated systems.
+    \item \textbf{Catastrophic model collapse}: At $\alpha = 0.1$ with $p = 0.2$, FedAvg and FedProx both achieved over 74\% accuracy by round 24 before collapsing to 11.95\% and 14.41\% by round 30, with training loss spiking 14.8$\times$ and 13.7$\times$ respectively. SCAFFOLD maintained 67.74\% at this same point, demonstrating recovery capability after a temporary dip.
 
-Future work should extend this analysis to larger client populations, more complex datasets (CIFAR-10, CIFAR-100), and additional algorithms such as FedNova and MOON. Investigating the sensitivity of SCAFFOLD to its SGD optimizer configuration (e.g., adding momentum or adaptive learning rates) and developing adaptive strategies that switch between algorithms based on observed participation patterns represent particularly promising directions.
+    \item \textbf{Non-monotonic participation response}: SCAFFOLD exhibited decreasing accuracy as participation increased from 50\% to 100\% at $\alpha = 0.1$ (90.25\% $\to$ 89.62\%) and $\alpha = 0.5$ (92.39\% $\to$ 91.25\%), suggesting that simultaneous control variate updates at full participation can be counterproductive.
+
+    \item \textbf{FedProx as robust default}: FedProx achieved the highest accuracy in 10 of 16 grid cells, dominating at intermediate participation levels and moderate heterogeneity. Its proximal regularization provides consistent stabilization without the convergence speed penalty of SCAFFOLD.
+
+    \item \textbf{Algorithm ranking inversion}: The optimal algorithm choice changed across the parameter space, with no single method dominating all operating conditions. This finding directly challenges the practice of selecting FL algorithms based on single-point benchmarks.
+\end{enumerate}
+
+For practitioners, our results suggest FedProx as a robust default for deployments expecting moderate data heterogeneity, FedAvg for scenarios with either high participation or relatively uniform data, and SCAFFOLD only when severe heterogeneity is anticipated alongside unreliable client availability and the risk of model collapse is unacceptable. The decision matrix provided in Table~\ref{tab:decision} offers specific guidance based on expected operating conditions.
+
+These findings extend and refine the observation made by Li et al. \cite{li2022niid}, who identified SCAFFOLD's failure under partial participation at a single configuration. Our two-dimensional analysis demonstrates that this failure is not absolute: SCAFFOLD's limitations under partial participation coexist with a protective mechanism that becomes uniquely valuable at the most extreme end of the parameter space. The broader methodological contribution is the demonstration that evaluating FL algorithms along a single axis of variation --- whether heterogeneity alone or participation alone --- can produce misleading conclusions, and that the two-dimensional grid evaluation framework we propose should become a standard component of future FL benchmarking studies.
+
+Future work should extend this analysis along several dimensions. First, scaling to larger client populations (50--500 clients) would test whether the phenomena we observe persist when the effective cohort size at low participation rates is larger. Second, more challenging datasets such as CIFAR-10, CIFAR-100, and domain-specific medical imaging benchmarks would reveal whether the model collapse mechanism we documented operates at larger model scales and with more complex learned representations. Third, evaluating additional algorithms --- particularly FedNova \cite{wang2020fednova}, MOON \cite{li2021moon}, and FedDyn \cite{acar2021feddyn} --- within the same two-dimensional grid would provide a more comprehensive algorithm comparison. Fourth, investigating whether SCAFFOLD's performance ceiling can be alleviated through adaptive optimizer configurations --- such as controlled momentum schedules that gradually introduce momentum as the model stabilizes, or learning rate warmup strategies --- represents a particularly promising direction. Finally, developing meta-algorithms that dynamically switch between aggregation strategies based on observed participation patterns and convergence diagnostics could translate the insights from this grid study into practical, self-tuning federated systems.
 
 
 % ============================================================================
@@ -428,6 +498,26 @@ J.~Wen, Z.~Zhang, Y.~Lan, Z.~Cui, J.~Cai, and W.~Zhang,
 D.~C.~Nguyen, M.~Ding, P.~N.~Pathirana, A.~Seneviratne, J.~Li, and H.~V.~Poor,
 ``Federated learning for Internet of Things: A comprehensive survey,''
 \textit{IEEE Communications Surveys \& Tutorials}, vol.~23, no.~3, pp. 1622--1658, 2021.
+
+\bibitem{lecun1998mnist}
+Y.~LeCun, L.~Bottou, Y.~Bengio, and P.~Haffner,
+``Gradient-based learning applied to document recognition,''
+\textit{Proc. IEEE}, vol.~86, no.~11, pp. 2278--2324, 1998.
+
+\bibitem{zhao2018noniid}
+Y.~Zhao, M.~Li, L.~Lai, N.~Suda, D.~Civin, and V.~Chandra,
+``Federated learning with non-IID data,''
+\textit{arXiv preprint arXiv:1806.00582}, 2018.
+
+\bibitem{li2021moon}
+Q.~Li, B.~He, and D.~Song,
+``Model-contrastive federated learning,''
+in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR)}, 2021, pp. 10713--10722.
+
+\bibitem{acar2021feddyn}
+D.~A.~E.~Acar, Y.~Zhao, R.~Matas, M.~Mattina, P.~Whatmough, and V.~Saligrama,
+``Federated learning based on dynamic regularization,''
+in \textit{Proc. International Conference on Learning Representations (ICLR)}, 2021.
 
 \end{thebibliography}
 
