@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ultra-fast FL experiment runner. Lightweight MLP, 1 local epoch, large batches.
+Ultra-fast FL experiment runner. Lightweight CNN, 1 local epoch, large batches.
 Target: all 48 experiments in <60 minutes on M-series Mac CPU.
 """
 import torch, torch.nn as nn, torch.optim as optim

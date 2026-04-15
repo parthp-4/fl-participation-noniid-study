@@ -1,6 +1,6 @@
 """
 SimpleCNN model for MNIST classification.
-Used as the shared architecture across all federated learning experiments.
+Legacy architecture — not used in the published experiments. See LiteCNN in run_fast.py.
 """
 
 import torch

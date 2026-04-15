@@ -15,7 +15,7 @@ We address this gap by evaluating three widely adopted aggregation strategies ac
 | Finding | Detail |
 |---------|--------|
 | **SCAFFOLD ceiling** | Peaked at 93.39% even under ideal conditions (α=1.0, p=1.0), vs. 98.05% FedAvg and 98.10% FedProx |
-| **Model collapse** | At α=0.1 with 20% participation, FedAvg and FedProx collapsed to ~12–14%, while SCAFFOLD maintained 67.74% |
+| **Model collapse** | At α=0.1 with 20% participation, all algorithms are vulnerable to catastrophic collapse; which one fails depends on the data partition (see paper Section V) |
 | **Moderate heterogeneity** | At α ≥ 0.5, FedAvg and FedProx sustained 95–98% regardless of participation; SCAFFOLD remained at 86–93% |
 | **FedProx dominance** | Best performer across the majority of the parameter space, particularly at moderate heterogeneity |
 
