@@ -47,7 +47,7 @@ We address this gap by evaluating three widely adopted aggregation strategies ac
 │   ├── run_experiments.ipynb       # Google Colab notebook (primary runner)
 │   ├── run_fast.py                 # Local experiment runner (CPU/GPU)
 │   ├── generate_figures.py         # Publication figure generation
-│   ├── models.py                   # SimpleCNN architecture (~52K params)
+│   ├── models.py                   # SimpleCNN architecture (unused legacy)
 │   ├── data_utils.py               # Dirichlet-based data partitioner
 │   └── fl_algorithms.py            # FedAvg, FedProx, SCAFFOLD implementations
 ├── results/
